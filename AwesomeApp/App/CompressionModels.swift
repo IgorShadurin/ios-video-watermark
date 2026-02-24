@@ -1,8 +1,10 @@
 import AVFoundation
+import CoreGraphics
 import Foundation
-import UniformTypeIdentifiers
+import UIKit
 
-struct VideoMetadata: Equatable {
+struct WatermarkSourceVideo: Identifiable, Equatable {
+    let id: UUID
     let sourceURL: URL
     let durationSeconds: Double
     let fileSizeBytes: Int64
@@ -12,130 +14,209 @@ struct VideoMetadata: Equatable {
     let sourceContainerIdentifier: String
     let preferredTransform: CGAffineTransform
 
+    init(
+        sourceURL: URL,
+        durationSeconds: Double,
+        fileSizeBytes: Int64,
+        width: Int,
+        height: Int,
+        frameRate: Double,
+        sourceContainerIdentifier: String,
+        preferredTransform: CGAffineTransform
+    ) {
+        self.id = UUID()
+        self.sourceURL = sourceURL
+        self.durationSeconds = durationSeconds
+        self.fileSizeBytes = fileSizeBytes
+        self.width = width
+        self.height = height
+        self.frameRate = frameRate
+        self.sourceContainerIdentifier = sourceContainerIdentifier
+        self.preferredTransform = preferredTransform
+    }
+
     var sourceSummary: String {
-        let fpsText = Int(frameRate.rounded())
-        return "\(width)x\(height) • \(formatSeconds(durationSeconds)) • \(fpsText) fps"
+        "\(width)x\(height) • \(formatSeconds(durationSeconds)) • \(Int(frameRate.rounded())) fps"
     }
 }
 
-struct OutputPresetOption: Identifiable, Hashable {
-    static let autoID = "auto"
+struct QueuedWatermarkVideo: Identifiable, Equatable {
+    let id = UUID()
+    let source: WatermarkSourceVideo
+    let previewImage: UIImage?
 
-    let id: String
-    let title: String
+    var name: String {
+        source.sourceURL.lastPathComponent
+    }
 
-    var isAuto: Bool {
-        id == Self.autoID
+    var title: String {
+        source.sourceSummary
+    }
+
+    var sizeText: String {
+        humanReadableSize(source.fileSizeBytes)
     }
 }
 
-struct OutputFileTypeOption: Identifiable, Hashable {
-    static let autoID = "auto"
+struct WatermarkResult: Identifiable, Equatable {
+    let id = UUID()
+    let sourceName: String
+    let outputURL: URL
+    let outputSizeBytes: Int64
+}
 
-    let id: String
-    let title: String
+enum WatermarkPositionPreset: String, CaseIterable, Identifiable, Codable, Hashable {
+    case topLeft
+    case top
+    case topRight
+    case left
+    case center
+    case right
+    case bottomLeft
+    case bottom
+    case bottomRight
+    case custom
 
-    var isAuto: Bool {
-        id == Self.autoID
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .topLeft: return "Top Left"
+        case .top: return "Top"
+        case .topRight: return "Top Right"
+        case .left: return "Left"
+        case .center: return "Center"
+        case .right: return "Right"
+        case .bottomLeft: return "Bottom Left"
+        case .bottom: return "Bottom"
+        case .bottomRight: return "Bottom Right"
+        case .custom: return "Custom"
+        }
+    }
+
+    var defaultPosition: (Double, Double) {
+        switch self {
+        case .topLeft: return (0, 100)
+        case .top: return (50, 100)
+        case .topRight: return (100, 100)
+        case .left: return (0, 50)
+        case .center: return (50, 50)
+        case .right: return (100, 50)
+        case .bottomLeft: return (0, 0)
+        case .bottom: return (50, 0)
+        case .bottomRight: return (100, 0)
+        case .custom: return (12, 12)
+        }
     }
 }
 
-enum ConversionModelError: LocalizedError {
+struct WatermarkSettings: Codable, Equatable, Sendable {
+    var sizePercent: Double
+    var opacity: Double
+    var positionPreset: WatermarkPositionPreset
+    var positionXPercent: Double
+    var positionYPercent: Double
+
+    init(
+        sizePercent: Double,
+        opacity: Double,
+        positionPreset: WatermarkPositionPreset,
+        positionXPercent: Double,
+        positionYPercent: Double
+    ) {
+        self.sizePercent = WatermarkSettings.clamp(sizePercent, min: 5, max: 60)
+        self.opacity = WatermarkSettings.clamp(opacity, min: 0.05, max: 1)
+        self.positionPreset = positionPreset
+        self.positionXPercent = WatermarkSettings.clamp(positionXPercent, min: 0, max: 100)
+        self.positionYPercent = WatermarkSettings.clamp(positionYPercent, min: 0, max: 100)
+    }
+
+    static var defaultSettings: WatermarkSettings {
+        WatermarkSettings(
+            sizePercent: 18,
+            opacity: 0.85,
+            positionPreset: .bottomRight,
+            positionXPercent: 94,
+            positionYPercent: 6
+        )
+    }
+
+    func appliedPreset(_ preset: WatermarkPositionPreset) -> WatermarkSettings {
+        let defaults = preset.defaultPosition
+        var next = self
+        next.positionPreset = preset
+        next.positionXPercent = defaults.0
+        next.positionYPercent = defaults.1
+        return next
+    }
+
+    private static func clamp(_ value: Double, min: Double, max: Double) -> Double {
+        Swift.max(minValue(value, min), maxValue(value, max))
+    }
+
+    private static func minValue(_ value: Double, _ minimum: Double) -> Double {
+        Swift.max(value, minimum)
+    }
+
+    private static func maxValue(_ value: Double, _ maximum: Double) -> Double {
+        Swift.min(value, maximum)
+    }
+}
+
+enum ConversionWorkflowStep: String, Equatable, Codable, Sendable {
+    case source
+    case convert
+    case result
+}
+
+struct ConversionWorkflowState: Equatable, Codable, Sendable {
+    var step: ConversionWorkflowStep
+    var isConverting: Bool
+
+    init(step: ConversionWorkflowStep = .source, isConverting: Bool = false) {
+        self.step = step
+        self.isConverting = isConverting
+    }
+}
+
+enum ConversionWorkflowEvent: Equatable, Sendable {
+    case sourceSelected
+    case sourceCleared
+    case conversionStarted
+    case conversionSucceeded
+    case conversionFailed
+    case restart
+}
+
+enum ConversionWorkflowError: Error, Equatable, LocalizedError {
+    case invalidTransition
+
+    var errorDescription: String? {
+        "This workflow transition is not valid right now."
+    }
+}
+
+enum WatermarkSourceError: LocalizedError {
     case noVideoTrack
-    case noExportCapability
+    case noValidExportPath
+    case cannotCompose
+    case cancelled
+    case unsupported
 
     var errorDescription: String? {
         switch self {
         case .noVideoTrack:
-            return "The selected file does not contain a readable video track."
-        case .noExportCapability:
-            return "This video cannot be exported with current iOS video frameworks."
+            return "The selected file does not include a readable video track."
+        case .noValidExportPath:
+            return "Unable to create a valid output file path."
+        case .cannotCompose:
+            return "Unable to prepare composition for this video."
+        case .cancelled:
+            return "Watermarking was cancelled."
+        case .unsupported:
+            return "This format is not supported on this device."
         }
     }
-}
-
-extension ConversionContainer {
-    var avFileType: AVFileType {
-        AVFileType(rawValue: identifier)
-    }
-
-    var fileExtension: String {
-        if let preferred = UTType(identifier)?.preferredFilenameExtension {
-            return preferred
-        }
-
-        switch identifier {
-        case ConversionContainer.mov.identifier:
-            return "mov"
-        case ConversionContainer.mp4.identifier:
-            return "mp4"
-        case ConversionContainer.m4v.identifier:
-            return "m4v"
-        case ConversionContainer.gpp3.identifier:
-            return "3gp"
-        case ConversionContainer.gpp23.identifier:
-            return "3g2"
-        default:
-            return "mov"
-        }
-    }
-
-    var label: String {
-        switch identifier {
-        case ConversionContainer.mov.identifier:
-            return "MOV"
-        case ConversionContainer.mp4.identifier:
-            return "MP4"
-        case ConversionContainer.m4v.identifier:
-            return "M4V"
-        case ConversionContainer.gpp3.identifier:
-            return "3GP"
-        case ConversionContainer.gpp23.identifier:
-            return "3G2"
-        default:
-            if let utType = UTType(identifier), let ext = utType.preferredFilenameExtension {
-                return ext.uppercased()
-            }
-            return identifier
-        }
-    }
-
-    init(fileType: AVFileType) {
-        self.init(identifier: fileType.rawValue)
-    }
-}
-
-extension ConversionPresetCapability {
-    var shortTitle: String {
-        switch presetName {
-        case AVAssetExportPresetPassthrough:
-            return "Passthrough"
-        case AVAssetExportPresetHighestQuality:
-            return "Highest"
-        case AVAssetExportPresetHEVCHighestQuality:
-            return "HEVC Highest"
-        case AVAssetExportPresetMediumQuality:
-            return "Medium"
-        case AVAssetExportPresetLowQuality:
-            return "Low"
-        case AVAssetExportPreset640x480:
-            return "640x480"
-        case AVAssetExportPreset960x540:
-            return "960x540"
-        case AVAssetExportPreset1280x720:
-            return "1280x720"
-        case AVAssetExportPreset1920x1080:
-            return "1080p"
-        case AVAssetExportPreset3840x2160:
-            return "4K"
-        default:
-            return presetName.replacingOccurrences(of: "AVAssetExportPreset", with: "")
-        }
-    }
-}
-
-func fileTypeLabel(_ identifier: String) -> String {
-    ConversionContainer(identifier: identifier).label
 }
 
 func humanReadableSize(_ bytes: Int64) -> String {
@@ -143,8 +224,6 @@ func humanReadableSize(_ bytes: Int64) -> String {
 }
 
 func formatSeconds(_ seconds: Double) -> String {
-    guard seconds.isFinite, seconds >= 0 else {
-        return "0.0s"
-    }
+    guard seconds.isFinite, seconds >= 0 else { return "0.0s" }
     return String(format: "%.1fs", seconds)
 }

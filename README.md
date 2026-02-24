@@ -1,47 +1,34 @@
-# Video Converter
+# Video Watermark
 
-`Video Converter` is an iOS video conversion app built on AVFoundation.
-It converts source videos into any output format/preset combination that iOS reports as compatible for the selected file.
-
-## Showcase
-<p>
-  <img src="showcase/step-source.png" alt="Step source" width="220" />
-  <img src="showcase/step-convert.png" alt="Step convert" width="220" />
-  <img src="showcase/step-result.png" alt="Step result" width="220" />
-</p>
+Video Watermark is a local-first iOS app for adding image watermarks to multiple source videos and saving stamped outputs.
 
 ## Core Features
-- Local-first conversion pipeline (`AVAssetExportSession`).
-- Dynamic capability detection per source:
-  - compatible export presets,
-  - compatible output file types.
-- Minimal 3-step flow: `Source -> Convert -> Result`.
-- Advanced controls are collapsed by default:
-  - preset override,
-  - output format override,
-  - clip start/end,
-  - optimize for network use.
-- Photos + Files import paths.
-- Cancel conversion while exporting.
-- Save converted output to Photos and share output files.
-- Persisted conversion settings across launches.
+- Batch process several videos in one run.
+- Pick watermark image from Photos.
+- Tune size, opacity, and placement (`X/Y` sliders plus quick presets).
+- Dynamic placement is adapted to source video render size.
+- Supports Photos and Files imports.
+- Cancel long-running exports.
 
-## Build
+## Watermark sizing approach
+- Convert each source track’s `naturalSize` with `preferredTransform`.
+- Calculate a base watermark width from source width and `sizePercent`.
+- Preserve original watermark aspect ratio and keep result within:
+  - 90% of source width
+  - 25% of source height
+  - minimum 18pt edge and 18pt height
+- Clamp placement values to source bounds using normalized X/Y percentages (0..100).
+
+## Build and launch
 ```bash
-xcodebuild -project AwesomeApp.xcodeproj -scheme AwesomeApp -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -project AwesomeApp.xcodeproj -scheme AwesomeApp -destination 'platform=iOS Simulator,name=iPhone 16,OS=18.6' build
 ```
 
-## Automated Verification
-- `swift test`: PASS (9 tests).
-- `xcodebuild` iOS Simulator build:
-  - iPhone 13 mini: PASS
-  - iPhone 16: PASS
-  - iPhone 16 Pro Max: PASS
+## Verification
+```bash
+swift test --parallel
+```
 
-## Manual/Simulator QA
-- App install + launch on all 3 target simulators: PASS.
-- Screen-fit checks (source/convert/result layouts): PASS on mini/regular/pro max.
-- Light + Dark mode source-screen checks: PASS on mini/regular/pro max.
-- Full click-based import/convert/save validation: PARTIAL.
-  - Reason: this terminal workflow can boot/install/launch/screenshot simulators but does not provide reliable tap automation for full interactive click-through flows.
-  - Mitigation: added `SHOWCASE_STEP` launch mode for deterministic UI state capture (`source`, `convert`, `result`).
+## Notes
+- Light, gradient-based UI style with rounded cards and compact steps.
+- Output uses local AVFoundation composition and `AVVideoCompositionCoreAnimationTool`.

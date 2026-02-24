@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct AwesomeAppApp: App {
+struct VideoWatermarkApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()

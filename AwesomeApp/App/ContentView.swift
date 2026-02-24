@@ -1,21 +1,18 @@
 import AVKit
 import PhotosUI
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel = VideoConversionViewModel()
-    @State private var isAdvancedSettingsExpanded = false
-    @State private var isFileImporterPresented = false
-    @State private var saveAlertMessage: String?
-    @Environment(\.colorScheme) private var colorScheme
+    @State private var isVideoFileImporterPresented = false
+    @State private var saveMessage: String?
 
     var body: some View {
         NavigationStack {
             ZStack {
-                atmosphericBackground
+                background
 
-                VStack(spacing: 10) {
+                VStack(spacing: 12) {
                     header
                     stepRail
 
@@ -32,496 +29,445 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 }
                 .padding(.horizontal, 14)
-                .padding(.top, 8)
+                .padding(.top, 10)
+                .padding(.bottom, 12)
             }
             .navigationBarHidden(true)
         }
-        .onChange(of: viewModel.pickerItem) { _, _ in
-            Task {
-                await viewModel.handlePickerChange()
-            }
+        .onChange(of: viewModel.videoPickerItems) { _, _ in
+            Task { await viewModel.handleVideoPickerChange() }
+        }
+        .onChange(of: viewModel.watermarkPickerItem) { _, _ in
+            Task { await viewModel.handleWatermarkPickerChange() }
         }
         .fileImporter(
-            isPresented: $isFileImporterPresented,
+            isPresented: $isVideoFileImporterPresented,
             allowedContentTypes: [.movie, .video, .mpeg4Movie, .quickTimeMovie],
-            allowsMultipleSelection: false
+            allowsMultipleSelection: true
         ) { result in
             switch result {
             case .success(let urls):
-                guard let url = urls.first else { return }
-                Task {
-                    await viewModel.handleImportedFile(url: url)
-                }
+                Task { await viewModel.handleImportedVideos(urls: urls) }
             case .failure(let error):
-                viewModel.handleImportFailure(error.localizedDescription)
+                saveMessage = "Import failed: \(error.localizedDescription)"
             }
         }
-        .alert(
-            "Save Result",
-            isPresented: Binding(
-                get: { saveAlertMessage != nil },
-                set: { if !$0 { saveAlertMessage = nil } }
-            )
-        ) {
-            Button("OK", role: .cancel) {
-                saveAlertMessage = nil
-            }
+        .alert("Video Watermark", isPresented: Binding(
+            get: { saveMessage != nil },
+            set: { if !$0 { saveMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) { saveMessage = nil }
         } message: {
-            Text(saveAlertMessage ?? "")
-                .font(uiFont(15, weight: .medium))
+            Text(saveMessage ?? "")
         }
     }
 
-    private var atmosphericBackground: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.94, green: 0.96, blue: 0.99),
-                    Color(red: 0.93, green: 0.97, blue: 0.95)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
-
-            Circle()
-                .fill(Color(red: 0.00, green: 0.55, blue: 0.95).opacity(colorScheme == .dark ? 0.18 : 0.12))
-                .frame(width: 260, height: 260)
-                .blur(radius: 24)
-                .offset(x: 170, y: -250)
-
-            Circle()
-                .fill(Color(red: 1.00, green: 0.58, blue: 0.32).opacity(colorScheme == .dark ? 0.16 : 0.11))
-                .frame(width: 240, height: 240)
-                .blur(radius: 28)
-                .offset(x: -170, y: 340)
-        }
+    private var background: some View {
+        LinearGradient(
+            colors: [
+                Color(red: 0.98, green: 0.99, blue: 1.00),
+                Color(red: 0.94, green: 0.96, blue: 0.98)
+            ],
+            startPoint: .top,
+            endPoint: .bottom
+        )
+        .ignoresSafeArea()
     }
 
     private var header: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
             VStack(alignment: .leading, spacing: 4) {
-                Text("Video Converter")
-                    .font(uiFont(38, weight: .heavy))
-                    .foregroundStyle(Color.primary)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-
-                Text("Fast local conversion for your iPhone")
-                    .font(uiFont(14, weight: .medium))
-                    .foregroundStyle(Color.primary.opacity(0.65))
+                Text("Video Watermark")
+                    .font(.system(.title2, design: .rounded, weight: .bold))
+                Text("Batch watermarking with dynamic size and transparency")
+                    .font(.system(.subheadline, design: .rounded, weight: .regular))
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
 
-            VStack(spacing: 8) {
-                Image(systemName: "film.stack.fill")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(Color.white)
-                    .frame(width: 40, height: 40)
-                    .background(accentGradient, in: RoundedRectangle(cornerRadius: 13, style: .continuous))
-
-                Text("ON-DEVICE")
-                    .font(uiFont(9, weight: .bold))
-                    .foregroundStyle(Color.primary.opacity(0.6))
-            }
+            Image(systemName: "sparkles")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 38, height: 38)
+                .background(
+                    RoundedRectangle(cornerRadius: 13, style: .continuous)
+                        .fill(LinearGradient(
+                            colors: [Color.blue.opacity(0.9), Color.cyan.opacity(0.85)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                )
         }
     }
 
     private var stepRail: some View {
         HStack(spacing: 8) {
             stepChip(title: "Source", icon: "tray.and.arrow.down", isActive: viewModel.workflowStep == .source)
-            stepChip(title: "Convert", icon: "arrow.2.squarepath", isActive: viewModel.workflowStep == .convert)
-            stepChip(title: "Result", icon: "checkmark.circle", isActive: viewModel.workflowStep == .result)
+            stepChip(title: "Settings", icon: "slider.horizontal.3", isActive: viewModel.workflowStep == .convert)
+            stepChip(title: "Results", icon: "checkmark.circle", isActive: viewModel.workflowStep == .result)
         }
     }
 
     private func stepChip(title: String, icon: String, isActive: Bool) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .bold))
             Text(title)
-                .font(uiFont(13, weight: .semibold))
+                .font(.system(.caption, design: .rounded, weight: .semibold))
         }
-        .foregroundStyle(isActive ? Color.white : Color.primary.opacity(0.7))
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .foregroundStyle(isActive ? .white : .primary.opacity(0.7))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(isActive ? AnyShapeStyle(accentGradient) : AnyShapeStyle(Color.primary.opacity(0.08)))
+                .fill(isActive ? AnyShapeStyle(LinearGradient(colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.85)], startPoint: .leading, endPoint: .trailing) ) : AnyShapeStyle(Color.white.opacity(0.8)))
         )
     }
 
     private var sourceStep: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                glowCard {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Import Source")
-                            .font(uiFont(26, weight: .bold))
-                        Text("Any video your iPhone can decode")
-                            .font(uiFont(14, weight: .medium))
-                            .foregroundStyle(Color.primary.opacity(0.7))
-                        Text(viewModel.statusMessage)
-                            .font(uiFont(13, weight: .regular))
-                            .foregroundStyle(Color.primary.opacity(0.55))
-                    }
-                }
+            VStack(spacing: 12) {
+                statusCard(title: "Import", body: viewModel.statusMessage, status: viewModel.errorMessage)
 
                 PhotosPicker(
-                    selection: $viewModel.pickerItem,
-                    matching: .videos,
-                    preferredItemEncoding: .compatible,
-                    photoLibrary: .shared()
+                    selection: $viewModel.videoPickerItems,
+                    maxSelectionCount: 25,
+                    matching: .videos
                 ) {
-                    actionPill(title: "Pick from Photos", icon: "photo.on.rectangle", isPrimary: true)
+                    actionButton("Pick Videos", icon: "photo.stack", primary: true)
                 }
                 .buttonStyle(.plain)
 
                 Button {
-                    isFileImporterPresented = true
+                    isVideoFileImporterPresented = true
                 } label: {
-                    actionPill(title: "Pick from Files", icon: "folder", isPrimary: false)
+                    actionButton("Pick from Files", icon: "folder", primary: false)
                 }
                 .buttonStyle(.plain)
 
                 if viewModel.isLoadingSourceDetails {
-                    glowCard {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                            Text("Reading metadata...")
-                                .font(uiFont(14, weight: .medium))
-                                .foregroundStyle(Color.primary.opacity(0.7))
+                    ProgressView("Loading selected media...")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if !viewModel.queuedVideos.isEmpty {
+                    card {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("Queued Videos")
+                                .font(.system(.headline, design: .rounded))
+                            ForEach(viewModel.queuedVideos) { queued in
+                                HStack(spacing: 10) {
+                                    Group {
+                                        if let image = queued.previewImage {
+                                            Image(uiImage: image)
+                                                .resizable()
+                                                .scaledToFill()
+                                        } else {
+                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                .fill(Color.white.opacity(0.6))
+                                                .overlay { Image(systemName: "video.fill") }
+                                        }
+                                    }
+                                    .frame(width: 58, height: 58)
+                                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(queued.name)
+                                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                            .lineLimit(1)
+                                        Text(queued.title)
+                                            .font(.system(.footnote, design: .rounded))
+                                            .foregroundStyle(.secondary)
+                                        Text(queued.sizeText)
+                                            .font(.system(.caption, design: .rounded))
+                                            .foregroundStyle(.secondary)
+                                    }
+
+                                    Spacer(minLength: 0)
+
+                                    Button(role: .destructive) {
+                                        withAnimation {
+                                            viewModel.removeQueuedVideo(queued.id)
+                                        }
+                                    } label: {
+                                        Image(systemName: "trash")
+                                    }
+                                }
+                                .padding(.vertical, 3)
+                            }
                         }
                     }
                 }
-
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(uiFont(13, weight: .medium))
-                        .foregroundStyle(Color(uiColor: .systemRed))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
             }
-            .padding(.top, 6)
-            .padding(.bottom, 16)
         }
     }
 
     private var convertStep: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                sourceCard
+            VStack(spacing: 12) {
+                card {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Watermark Image")
+                            .font(.system(.headline, design: .rounded))
 
-                glowCard {
-                    VStack(alignment: .leading, spacing: 12) {
-                        menuRow(
-                            title: "Output Format",
-                            systemImage: "doc",
-                            selection: $viewModel.selectedFileTypeID,
-                            options: viewModel.fileTypeOptions
-                        )
+                        if let image = viewModel.watermarkImage {
+                            HStack(spacing: 10) {
+                                Image(uiImage: image)
+                                    .resizable()
+                                    .scaledToFill()
+                                    .frame(width: 72, height: 72)
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 
-                        menuRow(
-                            title: "Quality Preset",
-                            systemImage: "slider.horizontal.3",
-                            selection: $viewModel.selectedPresetID,
-                            options: viewModel.presetOptions
-                        )
+                                VStack(alignment: .leading) {
+                                    Text("Selected")
+                                        .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                    Text("Size: \(viewModel.sizeText)  •  Opacity: \(viewModel.opacityText)")
+                                        .font(.system(.caption, design: .rounded))
+                                        .foregroundStyle(.secondary)
+                                }
 
-                        if let summary = viewModel.planSummaryText {
-                            Text(summary)
-                                .font(uiFont(12, weight: .medium))
-                                .foregroundStyle(Color.primary.opacity(0.55))
+                                Spacer(minLength: 0)
+                            }
                         }
+
+                        PhotosPicker(selection: $viewModel.watermarkPickerItem, matching: .images) {
+                            Label("Choose Watermark", systemImage: "photo.on.rectangle.angled")
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Color.white.opacity(0.75)))
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
 
-                glowCard {
-                    DisclosureGroup(isExpanded: $isAdvancedSettingsExpanded) {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Toggle("Optimize for network use", isOn: $viewModel.optimizeForNetworkUse)
-                                .font(uiFont(14, weight: .medium))
+                card {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Adjust watermark")
+                            .font(.system(.headline, design: .rounded))
 
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Clip start: \(formatSeconds(viewModel.clipStartSeconds))")
-                                    .font(uiFont(13, weight: .semibold))
-                                Slider(value: $viewModel.clipStartSeconds, in: viewModel.clipDurationRange)
-                            }
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Size \(viewModel.sizeText)")
+                            Slider(value: Binding(
+                                get: { viewModel.watermarkSettings.sizePercent },
+                                set: { viewModel.updateSize($0) }
+                            ), in: 6...60)
+                        }
 
-                            Toggle("Trim end", isOn: $viewModel.useClipEnd)
-                                .font(uiFont(14, weight: .medium))
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Opacity \(viewModel.opacityText)")
+                            Slider(value: Binding(
+                                get: { viewModel.watermarkSettings.opacity },
+                                set: { viewModel.updateOpacity($0) }
+                            ), in: 0.05...1)
+                        }
 
-                            if viewModel.useClipEnd {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text("Clip end: \(formatSeconds(viewModel.clipEndSeconds))")
-                                        .font(uiFont(13, weight: .semibold))
-                                    Slider(value: $viewModel.clipEndSeconds, in: viewModel.clipDurationRange)
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Horizontal \(Int(viewModel.watermarkSettings.positionXPercent))%")
+                            Slider(value: Binding(
+                                get: { viewModel.watermarkSettings.positionXPercent },
+                                set: { viewModel.updateX($0) }
+                            ), in: 0...100)
+                        }
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Vertical \(Int(viewModel.watermarkSettings.positionYPercent))%")
+                            Slider(value: Binding(
+                                get: { viewModel.watermarkSettings.positionYPercent },
+                                set: { viewModel.updateY($0) }
+                            ), in: 0...100)
+                        }
+
+                        Text("Quick position")
+                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                            .padding(.top, 4)
+
+                        let columns = Array(repeating: GridItem(.flexible(minimum: 72)), count: 2)
+                        LazyVGrid(columns: columns, spacing: 8) {
+                        ForEach(viewModel.positionPresets, id: \.self) { preset in
+                                Button {
+                                    viewModel.applyPreset(preset)
+                                } label: {
+                                    Text(preset.label)
+                                        .font(.system(.caption, design: .rounded, weight: .medium))
+                                        .lineLimit(1)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 10)
+                                        .background(
+                                            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                                .fill(viewModel.selectedPreset == preset
+                                                      ? Color.blue.opacity(0.85)
+                                                      : Color.white.opacity(0.8)
+                                                )
+                                        )
+                                        .foregroundStyle(viewModel.selectedPreset == preset ? .white : .primary)
                                 }
                             }
                         }
-                        .padding(.top, 8)
+
+                        if let validation = viewModel.validationMessage {
+                            Text(validation)
+                                .font(.system(.caption, design: .rounded))
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                }
+
+                if viewModel.canStartProcess {
+                    Button {
+                        Task { await viewModel.startProcessing() }
                     } label: {
-                        Label("Advanced Controls", systemImage: "slider.horizontal.3")
-                            .font(uiFont(14, weight: .semibold))
+                        Label("Apply to All Videos", systemImage: "wand.and.sparkles")
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(LinearGradient(colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.9)], startPoint: .leading, endPoint: .trailing))
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
-                    .accentColor(Color.primary)
+                    .buttonStyle(.plain)
                 }
-
-                if let validation = viewModel.validationMessage {
-                    Text(validation)
-                        .font(uiFont(13, weight: .medium))
-                        .foregroundStyle(Color(uiColor: .systemRed))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-
-                Button {
-                    Task {
-                        await viewModel.convert()
-                    }
-                } label: {
-                    actionPill(title: "Convert Video", icon: "arrow.triangle.2.circlepath", isPrimary: true)
-                }
-                .buttonStyle(.plain)
-                .disabled(!viewModel.canConvert)
 
                 if viewModel.isConverting {
-                    glowCard {
-                        VStack(alignment: .leading, spacing: 10) {
+                    card {
+                        VStack(alignment: .leading, spacing: 8) {
                             ProgressView(value: viewModel.conversionProgress ?? 0)
-                            Text(viewModel.conversionProgressText ?? "Starting...")
-                                .font(uiFont(12, weight: .medium))
-                                .foregroundStyle(Color.primary.opacity(0.65))
+                            Text("\(viewModel.conversionProgressText) • \(viewModel.statusMessage)")
+                                .font(.system(.footnote, design: .rounded))
+                                .foregroundStyle(.secondary)
 
                             Button(role: .destructive) {
-                                viewModel.cancelConversion()
+                                viewModel.cancelProcessing()
                             } label: {
-                                Label("Cancel conversion", systemImage: "xmark.circle")
-                                    .font(uiFont(14, weight: .semibold))
+                                Label("Cancel", systemImage: "xmark.circle")
                                     .frame(maxWidth: .infinity)
                                     .padding(.vertical, 10)
                             }
                             .buttonStyle(.bordered)
-                            .disabled(!viewModel.canCancelConversion)
+                            .disabled(!viewModel.canCancelProcess)
                         }
                     }
                 }
 
-                if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(uiFont(13, weight: .medium))
-                        .foregroundStyle(Color(uiColor: .systemRed))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                statusCard(title: "Status", body: viewModel.statusMessage, status: viewModel.errorMessage)
             }
-            .padding(.top, 6)
-            .padding(.bottom, 16)
         }
     }
 
     private var resultStep: some View {
         ScrollView(showsIndicators: false) {
-            VStack(spacing: 10) {
-                sourceCard
+            VStack(spacing: 12) {
+                statusCard(title: "Batch Completed", body: viewModel.statusMessage, status: viewModel.errorMessage)
 
-                glowCard {
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text("Result")
-                            .font(uiFont(24, weight: .bold))
+                if !viewModel.results.isEmpty {
+                    card {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("\(viewModel.results.count) videos saved")
+                                .font(.system(.headline, design: .rounded, weight: .bold))
 
-                        if let outputSizeText = viewModel.outputSizeText {
-                            Text("Output size: \(outputSizeText)")
-                                .font(uiFont(15, weight: .semibold))
-                        }
+                            ForEach(viewModel.results) { result in
+                                VStack(alignment: .leading, spacing: 6) {
+                                    HStack {
+                                        Text(result.sourceName)
+                                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                            .lineLimit(1)
 
-                        Text(viewModel.statusMessage)
-                            .font(uiFont(13, weight: .medium))
-                            .foregroundStyle(Color.primary.opacity(0.6))
-                    }
-                }
+                                        Spacer(minLength: 0)
 
-                if let convertedVideoURL = viewModel.convertedVideoURL {
-                    VideoPlayer(player: AVPlayer(url: convertedVideoURL))
-                        .frame(height: 220)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.white.opacity(colorScheme == .dark ? 0.15 : 0.55), lineWidth: 1)
-                        )
+                                        Text(humanReadableSize(result.outputSizeBytes))
+                                            .font(.system(.caption, design: .rounded))
+                                            .foregroundStyle(.secondary)
+                                    }
 
-                    HStack(spacing: 8) {
-                        Button {
-                            Task {
-                                saveAlertMessage = await viewModel.saveResultToPhotoLibrary()
+                                    HStack(spacing: 8) {
+                                        ShareLink(item: result.outputURL) {
+                                            Label("Share", systemImage: "square.and.arrow.up")
+                                                .frame(maxWidth: .infinity)
+                                        }
+
+                                        Button {
+                                            Task {
+                                                let message = await viewModel.saveResult(result)
+                                                saveMessage = message
+                                            }
+                                        } label: {
+                                            Label("Save", systemImage: "square.and.arrow.down")
+                                                .frame(maxWidth: .infinity)
+                                        }
+                                    }
+                                    .buttonStyle(.bordered)
+                                }
                             }
-                        } label: {
-                            Label("Save", systemImage: "square.and.arrow.down")
-                                .font(uiFont(14, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
                         }
-                        .buttonStyle(.borderedProminent)
-                        .disabled(!viewModel.canSaveResult)
+                    }
 
-                        ShareLink(item: convertedVideoURL) {
-                            Label("Share", systemImage: "square.and.arrow.up")
-                                .font(uiFont(14, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
+                    Button {
+                        Task {
+                            let messages = await viewModel.saveAllResults()
+                            if let first = messages.first(where: { !$0.hasPrefix("Saved") }) {
+                                saveMessage = first
+                            } else {
+                                saveMessage = "Save all completed."
+                            }
                         }
-                        .buttonStyle(.bordered)
+                    } label: {
+                        Label("Save All", systemImage: "tray.and.arrow.down")
                     }
-                } else {
-                    glowCard {
-                        Text("Result preview appears after a full conversion run.")
-                            .font(uiFont(13, weight: .medium))
-                            .foregroundStyle(Color.primary.opacity(0.55))
-                    }
+                    .buttonStyle(.borderedProminent)
                 }
 
                 Button {
                     viewModel.restartFlow()
                 } label: {
-                    actionPill(title: "Convert another video", icon: "plus", isPrimary: false)
+                    actionButton("Create New Watermark Job", icon: "arrow.uturn.left", primary: false)
                 }
                 .buttonStyle(.plain)
             }
-            .padding(.top, 6)
-            .padding(.bottom, 16)
         }
     }
 
-    private var sourceCard: some View {
-        glowCard {
-            HStack(spacing: 10) {
-                Group {
-                    if let image = viewModel.sourcePreviewImage {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFill()
-                    } else {
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(Color.primary.opacity(0.1))
-                            .overlay {
-                                Image(systemName: "video.fill")
-                                    .foregroundStyle(Color.primary.opacity(0.5))
-                            }
-                    }
-                }
-                .frame(width: 80, height: 80)
-                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Source")
-                        .font(uiFont(18, weight: .bold))
-                    if let sourceSummary = viewModel.sourceSummaryText {
-                        Text(sourceSummary)
-                            .font(uiFont(15, weight: .medium))
-                    }
-                    if let sourceSize = viewModel.sourceSizeText {
-                        Text(sourceSize)
-                            .font(uiFont(14, weight: .regular))
-                            .foregroundStyle(Color.primary.opacity(0.58))
-                    }
-                }
-
-                Spacer(minLength: 0)
-            }
-        }
-    }
-
-    private var accentGradient: LinearGradient {
-        LinearGradient(
-            colors: [
-                Color(red: 0.03, green: 0.49, blue: 0.97),
-                Color(red: 0.00, green: 0.67, blue: 0.84)
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-    }
-
-    private func glowCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+    private func card<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
-            .padding(14)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(colorScheme == .dark ? 0.09 : 0.72))
+                    .fill(Color.white.opacity(0.86))
+                    .shadow(color: Color.black.opacity(0.08), radius: 14, x: 0, y: 4)
             )
-            .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .stroke(Color.white.opacity(colorScheme == .dark ? 0.16 : 0.65), lineWidth: 1)
-            )
-            .shadow(color: Color.black.opacity(colorScheme == .dark ? 0.28 : 0.08), radius: 12, y: 5)
     }
 
-    private func actionPill(title: String, icon: String, isPrimary: Bool) -> some View {
+    private func statusCard(title: String, body: String, status: String?) -> some View {
+        card {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(title)
+                    .font(.system(.subheadline, design: .rounded, weight: .semibold))
+                Text(body)
+                    .font(.system(.caption, design: .rounded))
+                    .foregroundStyle(.secondary)
+
+                if let status {
+                    Text(status)
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundStyle(.red)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func actionButton(_ title: String, icon: String, primary: Bool) -> some View {
         Label(title, systemImage: icon)
-            .font(uiFont(20, weight: .semibold))
-            .foregroundStyle(isPrimary ? Color.white : Color.accentColor)
+            .font(.system(.headline, design: .rounded, weight: .semibold))
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(isPrimary ? AnyShapeStyle(accentGradient) : AnyShapeStyle(Color.primary.opacity(0.08)))
-            )
-    }
-
-    private func menuRow(
-        title: String,
-        systemImage: String,
-        selection: Binding<String>,
-        options: [OutputFileTypeOption]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: systemImage)
-                .font(uiFont(15, weight: .semibold))
-
-            Picker(title, selection: selection) {
-                ForEach(options) { option in
-                    Text(option.title).tag(option.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func menuRow(
-        title: String,
-        systemImage: String,
-        selection: Binding<String>,
-        options: [OutputPresetOption]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: systemImage)
-                .font(uiFont(15, weight: .semibold))
-
-            Picker(title, selection: selection) {
-                ForEach(options) { option in
-                    Text(option.title).tag(option.id)
-                }
-            }
-            .pickerStyle(.menu)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    private func uiFont(_ size: CGFloat, weight: Font.Weight) -> Font {
-        let fontName: String
-        switch weight {
-        case .heavy, .black:
-            fontName = "AvenirNext-Heavy"
-        case .bold, .semibold:
-            fontName = "AvenirNext-DemiBold"
-        case .medium:
-            fontName = "AvenirNext-Medium"
-        default:
-            fontName = "AvenirNext-Regular"
-        }
-        return .custom(fontName, size: size)
+            .padding(.vertical, 12)
+            .foregroundStyle(primary ? .white : .primary)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(primary
+                      ? AnyShapeStyle(LinearGradient(colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.85)], startPoint: .leading, endPoint: .trailing))
+                      : AnyShapeStyle(Color.white.opacity(0.7))
+                )
+        )
     }
 }

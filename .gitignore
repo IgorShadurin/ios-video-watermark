@@ -3,3 +3,5 @@ DerivedData/
 .DS_Store
 Pods/
 data/
+showcase/
+VideoWatermark_data/

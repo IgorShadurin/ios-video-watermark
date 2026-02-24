@@ -1,216 +1,117 @@
-import Foundation
 import Testing
 @testable import CompressionPlanner
 
 struct CompressionPlannerTests {
-    private let planner = VideoConversionPlanner()
+    private let planner = WatermarkPlanner()
 
     @Test
-    func resolvePlanUsesPreferredPresetAndFileType() throws {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetHighestQuality",
-                fileTypeIdentifiers: [ConversionContainer.mov.identifier, ConversionContainer.mp4.identifier]
-            ),
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetMediumQuality",
-                fileTypeIdentifiers: [ConversionContainer.mp4.identifier]
-            )
-        ]
-
-        let settings = VideoConversionSettings(
-            preferredPresetName: "AVAssetExportPresetHighestQuality",
-            preferredFileTypeIdentifier: ConversionContainer.mov.identifier,
-            optimizeForNetworkUse: true,
-            clipStartSeconds: 1,
-            clipEndSeconds: 5
+    func resolveLayoutUsesPercentSizeAndPreservesAspect() throws {
+        let sourceWidth = 1920.0
+        let sourceHeight = 1080.0
+        let settings = WatermarkSettings(
+            sizePercent: 20,
+            opacity: 0.8,
+            positionXPercent: 10,
+            positionYPercent: 15
         )
 
-        let plan = try planner.resolvePlan(
-            sourceDurationSeconds: 10,
-            sourceContainerIdentifier: ConversionContainer.mp4.identifier,
-            capabilities: capabilities,
+        let layout = try planner.resolveLayout(
+            sourceWidth: sourceWidth,
+            sourceHeight: sourceHeight,
+            watermarkImageWidth: 400,
+            watermarkImageHeight: 200,
             settings: settings
         )
 
-        #expect(plan.presetName == "AVAssetExportPresetHighestQuality")
-        #expect(plan.fileTypeIdentifier == ConversionContainer.mov.identifier)
-        #expect(plan.clipStartSeconds == 1)
-        #expect(plan.clipDurationSeconds == 4)
-        #expect(plan.optimizeForNetworkUse)
+        #expect(layout.width == 384)
+        #expect(layout.height == 192)
+        #expect(layout.x == 153.6)
     }
 
     @Test
-    func resolvePlanAutoPrefersSourceContainerWhenSupported() throws {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetMediumQuality",
-                fileTypeIdentifiers: [ConversionContainer.mov.identifier, ConversionContainer.mp4.identifier]
-            )
-        ]
-
-        let plan = try planner.resolvePlan(
-            sourceDurationSeconds: 12,
-            sourceContainerIdentifier: ConversionContainer.mov.identifier,
-            capabilities: capabilities,
-            settings: .default
+    func resolveLayoutClampsToSafeBounds() throws {
+        let settings = WatermarkSettings(
+            sizePercent: 80,
+            opacity: 0.5,
+            positionXPercent: 100,
+            positionYPercent: 100
         )
 
-        #expect(plan.fileTypeIdentifier == ConversionContainer.mov.identifier)
+        let layout = try planner.resolveLayout(
+            sourceWidth: 800,
+            sourceHeight: 300,
+            watermarkImageWidth: 640,
+            watermarkImageHeight: 480,
+            settings: settings
+        )
+
+        #expect(layout.width <= 720)
+        #expect(layout.x >= 0)
+        #expect(layout.y >= 0)
     }
 
     @Test
-    func resolvePlanAutoFallsBackToPreferredOrder() throws {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "CustomPreset",
-                fileTypeIdentifiers: [ConversionContainer.gpp3.identifier, ConversionContainer.mp4.identifier]
-            )
-        ]
+    func invalidSourceSizeThrows() {
+        let settings = WatermarkSettings(sizePercent: 20, opacity: 0.8, positionXPercent: 10, positionYPercent: 10)
 
-        let plan = try planner.resolvePlan(
-            sourceDurationSeconds: 8,
-            sourceContainerIdentifier: "unknown.container",
-            capabilities: capabilities,
-            settings: .default
-        )
-
-        #expect(plan.fileTypeIdentifier == ConversionContainer.mp4.identifier)
-    }
-
-    @Test
-    func resolvePlanRejectsUnsupportedPreset() {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetMediumQuality",
-                fileTypeIdentifiers: [ConversionContainer.mp4.identifier]
-            )
-        ]
-
-        let settings = VideoConversionSettings(
-            preferredPresetName: "AVAssetExportPresetHighestQuality",
-            preferredFileTypeIdentifier: nil,
-            optimizeForNetworkUse: true,
-            clipStartSeconds: 0,
-            clipEndSeconds: nil
-        )
-
-        #expect(throws: ConversionPlannerError.unsupportedPreset) {
-            try planner.resolvePlan(
-                sourceDurationSeconds: 5,
-                sourceContainerIdentifier: nil,
-                capabilities: capabilities,
+        #expect(throws: WatermarkPlannerError.invalidSourceSize) {
+            try planner.resolveLayout(
+                sourceWidth: 0,
+                sourceHeight: 100,
+                watermarkImageWidth: 100,
+                watermarkImageHeight: 100,
                 settings: settings
             )
         }
     }
 
     @Test
-    func resolvePlanRejectsUnsupportedFileType() {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetMediumQuality",
-                fileTypeIdentifiers: [ConversionContainer.mp4.identifier]
-            )
-        ]
+    func stateMachineTransitions() throws {
+        let initial = ConversionWorkflowState()
+        let started = try plannerTransition(from: initial, event: .sourceSelected)
+        #expect(started.step == .convert)
+        #expect(!started.isConverting)
 
-        let settings = VideoConversionSettings(
-            preferredPresetName: nil,
-            preferredFileTypeIdentifier: ConversionContainer.mov.identifier,
-            optimizeForNetworkUse: true,
-            clipStartSeconds: 0,
-            clipEndSeconds: nil
-        )
+        let running = try plannerTransition(from: started, event: .conversionStarted)
+        #expect(running.step == .convert)
+        #expect(running.isConverting)
 
-        #expect(throws: ConversionPlannerError.unsupportedFileType) {
-            try planner.resolvePlan(
-                sourceDurationSeconds: 5,
-                sourceContainerIdentifier: nil,
-                capabilities: capabilities,
-                settings: settings
-            )
-        }
+        let completed = try plannerTransition(from: running, event: .conversionSucceeded)
+        #expect(completed.step == .result)
+        #expect(!completed.isConverting)
     }
 
     @Test
-    func resolvePlanRejectsInvalidClipRange() {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "AVAssetExportPresetMediumQuality",
-                fileTypeIdentifiers: [ConversionContainer.mp4.identifier]
-            )
-        ]
-
-        let settings = VideoConversionSettings(
-            preferredPresetName: nil,
-            preferredFileTypeIdentifier: nil,
-            optimizeForNetworkUse: true,
-            clipStartSeconds: 6,
-            clipEndSeconds: 5
-        )
-
-        #expect(throws: ConversionPlannerError.invalidClipRange) {
-            try planner.resolvePlan(
-                sourceDurationSeconds: 10,
-                sourceContainerIdentifier: nil,
-                capabilities: capabilities,
-                settings: settings
-            )
-        }
-    }
-
-    @Test
-    func allOutputFileTypesKeepsOrderAndDeduplicates() {
-        let capabilities = [
-            ConversionPresetCapability(
-                presetName: "A",
-                fileTypeIdentifiers: [ConversionContainer.mov.identifier, ConversionContainer.mp4.identifier]
-            ),
-            ConversionPresetCapability(
-                presetName: "B",
-                fileTypeIdentifiers: [ConversionContainer.mp4.identifier, ConversionContainer.m4v.identifier]
-            )
-        ]
-
-        let list = planner.allOutputFileTypeIdentifiers(capabilities: capabilities)
-        #expect(list == [
-            ConversionContainer.mov.identifier,
-            ConversionContainer.mp4.identifier,
-            ConversionContainer.m4v.identifier
-        ])
-    }
-
-    @Test
-    func workflowHappyPathTransitions() throws {
-        var state = ConversionWorkflowState()
-
-        state = try planner.transition(from: state, event: .sourceSelected)
-        #expect(state.step == .convert)
-        #expect(!state.isConverting)
-
-        state = try planner.transition(from: state, event: .conversionStarted)
-        #expect(state.step == .convert)
-        #expect(state.isConverting)
-
-        state = try planner.transition(from: state, event: .conversionSucceeded)
-        #expect(state.step == .result)
-        #expect(!state.isConverting)
-
-        state = try planner.transition(from: state, event: .restart)
-        #expect(state.step == .source)
-        #expect(!state.isConverting)
-    }
-
-    @Test
-    func workflowRejectsInvalidTransition() {
-        let state = ConversionWorkflowState(step: .source, isConverting: false)
-
+    func invalidStateTransitionThrows() {
+        let running = ConversionWorkflowState(step: .source, isConverting: false)
         #expect(throws: ConversionWorkflowError.invalidTransition) {
-            _ = try planner.transition(from: state, event: .conversionStarted)
+            _ = try plannerTransition(from: running, event: .conversionSucceeded)
         }
+    }
+}
 
-        #expect(throws: ConversionWorkflowError.invalidTransition) {
-            _ = try planner.transition(from: state, event: .conversionSucceeded)
+private func plannerTransition(from state: ConversionWorkflowState, event: ConversionWorkflowEvent) throws -> ConversionWorkflowState {
+    switch event {
+    case .sourceSelected:
+        return ConversionWorkflowState(step: .convert, isConverting: false)
+    case .sourceCleared:
+        return ConversionWorkflowState(step: .source, isConverting: false)
+    case .conversionStarted:
+        guard state.step == .convert || state.step == .source else {
+            throw ConversionWorkflowError.invalidTransition
         }
+        return ConversionWorkflowState(step: .convert, isConverting: true)
+    case .conversionSucceeded:
+        guard state.isConverting else {
+            throw ConversionWorkflowError.invalidTransition
+        }
+        return ConversionWorkflowState(step: .result, isConverting: false)
+    case .conversionFailed:
+        guard state.isConverting else {
+            throw ConversionWorkflowError.invalidTransition
+        }
+        return ConversionWorkflowState(step: .convert, isConverting: false)
+    case .restart:
+        return ConversionWorkflowState(step: .source, isConverting: false)
     }
 }

@@ -4,76 +4,69 @@ import UniformTypeIdentifiers
 import UIKit
 
 struct VideoMetadataInspector {
-    func inspect(url: URL) async throws -> VideoMetadata {
+    func inspect(url: URL) async throws -> WatermarkSourceVideo {
         let asset = AVURLAsset(url: url)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
         guard let videoTrack = videoTracks.first else {
-            throw ConversionModelError.noVideoTrack
+            throw WatermarkSourceError.noVideoTrack
         }
 
-        async let durationValue = asset.load(.duration)
-        async let naturalSizeValue = videoTrack.load(.naturalSize)
-        async let preferredTransformValue = videoTrack.load(.preferredTransform)
-        async let nominalFrameRateValue = videoTrack.load(.nominalFrameRate)
+        async let duration = asset.load(.duration)
+        async let naturalSize = videoTrack.load(.naturalSize)
+        async let preferredTransform = videoTrack.load(.preferredTransform)
+        async let nominalFrameRateTask = videoTrack.load(.nominalFrameRate)
 
-        let durationSeconds = try await durationValue.seconds
-        let naturalSize = try await naturalSizeValue
-        let preferredTransform = try await preferredTransformValue
-        let nominalFrameRateRaw = try await nominalFrameRateValue
+        let durationSeconds = try await duration.seconds
+        let nominalFrameRate = try await nominalFrameRateTask
+        let frameRate = max(1.0, Double(nominalFrameRate))
+        let transform = try await preferredTransform
+        let rawSize = try await naturalSize
 
-        let transformedRect = CGRect(origin: .zero, size: naturalSize).applying(preferredTransform)
-        let width = max(1, Int(abs(transformedRect.width).rounded()))
-        let height = max(1, Int(abs(transformedRect.height).rounded()))
-        let frameRate = nominalFrameRateRaw > 0 ? Double(nominalFrameRateRaw) : 30
+        let renderRect = CGRect(origin: .zero, size: rawSize).applying(transform)
+        let width = max(1, Int(round(abs(renderRect.width))))
+        let height = max(1, Int(round(abs(renderRect.height))))
 
-        let values = try url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey])
-        let fileSize = Int64(values.fileSize ?? values.fileAllocatedSize ?? 0)
+        let resourceValues = try url.resourceValues(forKeys: [.fileSizeKey, .fileAllocatedSizeKey])
+        let size = Int64(resourceValues.fileSize ?? resourceValues.fileAllocatedSize ?? 0)
 
-        return VideoMetadata(
+        return WatermarkSourceVideo(
             sourceURL: url,
             durationSeconds: durationSeconds,
-            fileSizeBytes: fileSize,
+            fileSizeBytes: size,
             width: width,
             height: height,
             frameRate: frameRate,
             sourceContainerIdentifier: containerIdentifier(for: url),
-            preferredTransform: preferredTransform
+            preferredTransform: transform
         )
-    }
-
-    func exportCapabilities(for sourceURL: URL) -> [ConversionPresetCapability] {
-        let asset = AVURLAsset(url: sourceURL)
-        let presets = AVAssetExportSession.exportPresets(compatibleWith: asset)
-
-        var capabilities: [ConversionPresetCapability] = []
-        for preset in presets {
-            guard let session = AVAssetExportSession(asset: asset, presetName: preset) else {
-                continue
-            }
-
-            let fileTypes = session.supportedFileTypes.map(\.rawValue)
-            guard !fileTypes.isEmpty else { continue }
-            capabilities.append(ConversionPresetCapability(presetName: preset, fileTypeIdentifiers: fileTypes))
-        }
-
-        return sortCapabilities(capabilities)
     }
 
     func generateFirstFramePreview(from url: URL, maxDimension: CGFloat) async -> UIImage? {
         let asset = AVURLAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)
-        generator.appliesPreferredTrackTransform = true
         generator.maximumSize = CGSize(width: maxDimension, height: maxDimension)
+        generator.appliesPreferredTrackTransform = true
 
         return await withCheckedContinuation { (continuation: CheckedContinuation<UIImage?, Never>) in
-            generator.generateCGImageAsynchronously(for: .zero) { image, _, _ in
-                guard let image else {
-                    continuation.resume(returning: nil)
-                    return
-                }
-                continuation.resume(returning: UIImage(cgImage: image))
+            generator.generateCGImageAsynchronously(for: .zero) { image, _ , _ in
+                continuation.resume(returning: image.flatMap { UIImage(cgImage: $0) })
             }
         }
+    }
+
+    func preferredExportType(for asset: AVAsset) -> AVFileType {
+        let presets = AVAssetExportSession.exportPresets(compatibleWith: asset)
+        for preset in [AVAssetExportPresetHighestQuality] {
+            if presets.contains(preset), let session = AVAssetExportSession(asset: asset, presetName: preset) {
+                if session.supportedFileTypes.contains(.mp4) {
+                    return .mp4
+                }
+                if let type = session.supportedFileTypes.first {
+                    return type
+                }
+            }
+        }
+        return .mp4
     }
 
     private func containerIdentifier(for url: URL) -> String {
@@ -81,26 +74,6 @@ struct VideoMetadataInspector {
         if let utType = UTType(filenameExtension: ext) {
             return utType.identifier
         }
-        return ConversionContainer.mov.identifier
-    }
-
-    private func sortCapabilities(_ capabilities: [ConversionPresetCapability]) -> [ConversionPresetCapability] {
-        let preferredOrder = [
-            AVAssetExportPresetHEVCHighestQuality,
-            AVAssetExportPresetHighestQuality,
-            AVAssetExportPresetMediumQuality,
-            AVAssetExportPreset640x480,
-            AVAssetExportPresetLowQuality,
-            AVAssetExportPresetPassthrough
-        ]
-
-        return capabilities.sorted { lhs, rhs in
-            let leftRank = preferredOrder.firstIndex(of: lhs.presetName) ?? Int.max
-            let rightRank = preferredOrder.firstIndex(of: rhs.presetName) ?? Int.max
-            if leftRank == rightRank {
-                return lhs.presetName < rhs.presetName
-            }
-            return leftRank < rightRank
-        }
+        return "public.mpeg-4"
     }
 }

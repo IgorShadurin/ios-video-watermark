@@ -1,7 +1,6 @@
-import Foundation
 import CoreTransferable
+import Foundation
 import PhotosUI
-import UniformTypeIdentifiers
 
 struct PickedVideo: Transferable {
     let url: URL
