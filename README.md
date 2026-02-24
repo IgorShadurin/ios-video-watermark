@@ -4,7 +4,7 @@
 It converts source videos into any output format/preset combination that iOS reports as compatible for the selected file.
 
 ## Showcase
-### iPhone mini
+### iPhone (Regular)
 <p>
   <img src="showcase/step-source.png" alt="Step source" width="220" />
   <img src="showcase/step-convert.png" alt="Step convert" width="220" />

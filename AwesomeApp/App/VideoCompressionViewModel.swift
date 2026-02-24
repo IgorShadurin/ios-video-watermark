@@ -98,7 +98,7 @@ final class VideoConversionViewModel: ObservableObject {
 
     var presetOptions: [OutputPresetOption] {
         var options: [OutputPresetOption] = [
-            OutputPresetOption(id: OutputPresetOption.autoID, title: "Auto (best)")
+            OutputPresetOption(id: OutputPresetOption.autoID, title: "Auto")
         ]
 
         for capability in capabilities {
@@ -109,7 +109,7 @@ final class VideoConversionViewModel: ObservableObject {
 
     var fileTypeOptions: [OutputFileTypeOption] {
         var options: [OutputFileTypeOption] = [
-            OutputFileTypeOption(id: OutputFileTypeOption.autoID, title: "Auto (source/MP4)")
+            OutputFileTypeOption(id: OutputFileTypeOption.autoID, title: "Auto")
         ]
 
         let identifiers: [String]
