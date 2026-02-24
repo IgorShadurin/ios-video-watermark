@@ -10,6 +10,11 @@ Video Watermark is a local-first iOS app for adding image watermarks to multiple
 - Supports Photos and Files imports.
 - Cancel long-running exports.
 
+## Screenshots
+![Light workflow](.github/screenshots/video-watermark-source.png)
+
+![High-contrast preview](.github/screenshots/video-watermark-source-dark.png)
+
 ## Watermark sizing approach
 - Convert each source track’s `naturalSize` with `preferredTransform`.
 - Calculate a base watermark width from source width and `sizePercent`.
