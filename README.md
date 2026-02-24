@@ -11,9 +11,14 @@ Video Watermark is a local-first iOS app for adding image watermarks to multiple
 - Cancel long-running exports.
 
 ## Screenshots
-![Light workflow](.github/screenshots/video-watermark-source.png)
+![Fresh light UI](.github/screenshots/video-watermark-new-ui.png)
 
 ![High-contrast preview](.github/screenshots/video-watermark-source-dark.png)
+
+### UI touchpoints
+- New light/fresh visual style with gradient backdrop, rounded glass cards, and clearer step hierarchy.
+- Updated processing controls for watermark opacity, size, and position in one flow.
+- Improved state indicators for batch jobs and per-file export progress.
 
 ## Watermark sizing approach
 - Convert each source track’s `naturalSize` with `preferredTransform`.
