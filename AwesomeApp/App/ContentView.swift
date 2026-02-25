@@ -134,9 +134,9 @@ struct ContentView: View {
             Spacer(minLength: 0)
 
             ZStack {
-                Circle()
-                    .fill(.ultraThinMaterial)
-                    .frame(width: 52, height: 52)
+            Circle()
+                .fill(.ultraThinMaterial)
+                .frame(width: 52, height: 52)
                     .overlay(
                         Circle()
                             .stroke(
@@ -169,7 +169,7 @@ struct ContentView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.86))
                 .overlay(
                     RoundedRectangle(cornerRadius: 24, style: .continuous)
                         .stroke(Color.white.opacity(0.75), lineWidth: 1)
@@ -189,7 +189,7 @@ struct ContentView: View {
         .padding(4)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(.ultraThinMaterial)
+                .fill(Color.white.opacity(0.86))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
                         .stroke(Color.white.opacity(0.8), lineWidth: 1)
@@ -236,118 +236,116 @@ struct ContentView: View {
                             endPoint: .bottomTrailing
                         )
                     )
-                    : AnyShapeStyle(Color.white.opacity(0.5))
+                    : AnyShapeStyle(Color.white.opacity(0.74))
                 )
         )
         .overlay(
             RoundedRectangle(cornerRadius: 12)
-                .stroke(isActive ? Color.blue.opacity(0.4) : Color.white.opacity(0.4), lineWidth: 1)
+                .stroke(isActive ? Color.blue.opacity(0.4) : Color.blue.opacity(0.2), lineWidth: 1)
         )
         .shadow(color: isActive ? Color.blue.opacity(0.15) : .clear, radius: 14, x: 0, y: 8)
     }
 
     private var sourceStep: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                heroSection(
-                    title: "Import Media",
-                    icon: "play.rectangle.on.rectangle",
-                    subtitle: "Drag in clips from Photos or Files and let the queue build automatically."
-                )
+        VStack(spacing: 16) {
+            heroSection(
+                title: "Import Media",
+                icon: "play.rectangle.on.rectangle",
+                subtitle: "Drag in clips from Photos or Files and let the queue build automatically."
+            )
 
-                statusCard(title: "Session", body: viewModel.statusMessage, status: viewModel.errorMessage)
+            statusCard(title: "Session", body: viewModel.statusMessage, status: viewModel.errorMessage)
 
+            card {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Add source videos")
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                        Spacer(minLength: 0)
+                        Text("\(viewModel.queuedVideos.count)")
+                            .font(.system(.subheadline, design: .rounded, weight: .bold))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                Capsule()
+                                    .fill(Color.blue.opacity(0.16))
+                            )
+                            .foregroundStyle(.blue)
+                    }
+
+                    PhotosPicker(
+                        selection: $viewModel.videoPickerItems,
+                        maxSelectionCount: 25,
+                        matching: .videos
+                    ) {
+                        actionButton("Pick from Photos", icon: "photo.stack", primary: true)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        isVideoFileImporterPresented = true
+                    } label: {
+                        actionButton("Pick from Files", icon: "folder", primary: false)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+
+            if viewModel.isLoadingSourceDetails {
+                glassSurface {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text("Loading selected media...")
+                            .font(.system(.subheadline, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
+            if !viewModel.queuedVideos.isEmpty {
                 card {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack {
-                            Text("Add source videos")
-                                .font(.system(.headline, design: .rounded, weight: .semibold))
-                            Spacer(minLength: 0)
-                            Text("\(viewModel.queuedVideos.count)")
-                                .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 4)
-                                .background(
-                                    Capsule()
-                                        .fill(Color.blue.opacity(0.16))
-                                )
-                                .foregroundStyle(.blue)
-                        }
+                        Text("Queued Videos")
+                            .font(.system(.headline, design: .rounded, weight: .semibold))
+                            .foregroundStyle(.secondary)
 
-                        PhotosPicker(
-                            selection: $viewModel.videoPickerItems,
-                            maxSelectionCount: 25,
-                            matching: .videos
-                        ) {
-                            actionButton("Pick from Photos", icon: "photo.stack", primary: true)
-                        }
-                        .buttonStyle(.plain)
+                        ForEach(Array(viewModel.queuedVideos.enumerated()), id: \.element.id) { index, queued in
+                            HStack(spacing: 12) {
+                                thumbnail(queued.previewImage)
+                                    .frame(width: 66, height: 66)
 
-                        Button {
-                            isVideoFileImporterPresented = true
-                        } label: {
-                            actionButton("Pick from Files", icon: "folder", primary: false)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
-                if viewModel.isLoadingSourceDetails {
-                    glassSurface {
-                        HStack(spacing: 10) {
-                            ProgressView()
-                            Text("Loading selected media...")
-                                .font(.system(.subheadline, design: .rounded))
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-
-                if !viewModel.queuedVideos.isEmpty {
-                    card {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Queued Videos")
-                                .font(.system(.headline, design: .rounded, weight: .semibold))
-                                .foregroundStyle(.secondary)
-
-                            ForEach(Array(viewModel.queuedVideos.enumerated()), id: \.element.id) { index, queued in
-                                HStack(spacing: 12) {
-                                    thumbnail(queued.previewImage)
-                                        .frame(width: 66, height: 66)
-
-                                    VStack(alignment: .leading, spacing: 3) {
-                                        Text(queued.name)
-                                            .font(.system(.subheadline, design: .rounded, weight: .medium))
-                                            .lineLimit(1)
-                                        Text(queued.title)
-                                            .font(.system(.footnote, design: .rounded))
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                        Text(queued.sizeText)
-                                            .font(.system(.caption, design: .rounded, weight: .semibold))
-                                            .foregroundStyle(.blue)
-                                    }
-
-                                    Spacer(minLength: 0)
-
-                                    Text(String(format: "#%d", index + 1))
-                                        .font(.system(.caption, design: .monospaced, weight: .bold))
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(queued.name)
+                                        .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                        .lineLimit(1)
+                                    Text(queued.title)
+                                        .font(.system(.footnote, design: .rounded))
                                         .foregroundStyle(.secondary)
-                                        .padding(8)
-                                        .background(Capsule().fill(Color.white.opacity(0.46)))
-
-                                    Button(role: .destructive) {
-                                        withAnimation(.spring()) {
-                                            viewModel.removeQueuedVideo(queued.id)
-                                        }
-                                    } label: {
-                                        Image(systemName: "trash")
-                                            .foregroundStyle(.red)
-                                    }
+                                        .lineLimit(1)
+                                    Text(queued.sizeText)
+                                        .font(.system(.caption, design: .rounded, weight: .semibold))
+                                        .foregroundStyle(.blue)
                                 }
-                                .padding(.vertical, 2)
-                                .contentShape(Rectangle())
+
+                                Spacer(minLength: 0)
+
+                                Text(String(format: "#%d", index + 1))
+                                    .font(.system(.caption, design: .monospaced, weight: .bold))
+                                    .foregroundStyle(.secondary)
+                                    .padding(8)
+                                    .background(Capsule().fill(Color.white.opacity(0.46)))
+
+                                Button(role: .destructive) {
+                                    withAnimation(.spring()) {
+                                        viewModel.removeQueuedVideo(queued.id)
+                                    }
+                                } label: {
+                                    Image(systemName: "trash")
+                                        .foregroundStyle(.red)
+                                }
                             }
+                            .padding(.vertical, 2)
+                            .contentShape(Rectangle())
                         }
                     }
                 }
@@ -356,46 +354,44 @@ struct ContentView: View {
     }
 
     private var convertStep: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                heroSection(
-                    title: "Watermark Controls",
-                    icon: "wand.and.stars",
-                    subtitle: "Fine tune the look, position, and transparency before running a batch."
-                )
-                convertWatermarkCard
-                convertSettingsCard
-                convertProgressAction
+        VStack(spacing: 16) {
+            heroSection(
+                title: "Watermark Controls",
+                icon: "wand.and.stars",
+                subtitle: "Fine tune the look, position, and transparency before running a batch."
+            )
+            convertWatermarkCard
+            convertSettingsCard
+            convertProgressAction
 
-                if viewModel.canStartProcess {
-                    Button {
-                        Task { await viewModel.startProcessing() }
-                    } label: {
-                        Label("Apply to All Videos", systemImage: "wand.and.sparkles")
-                            .font(.system(.headline, design: .rounded, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
-                            .background(
-                                LinearGradient(
-                                    colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.9)],
-                                    startPoint: .leading,
-                                    endPoint: .trailing
-                                )
+            if viewModel.canStartProcess {
+                Button {
+                    Task { await viewModel.startProcessing() }
+                } label: {
+                    Label("Apply to All Videos", systemImage: "wand.and.sparkles")
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 13)
+                        .background(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.9)],
+                                startPoint: .leading,
+                                endPoint: .trailing
                             )
-                            .foregroundStyle(.white)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    }
-                    .buttonStyle(.plain)
-                    .scaleEffect(viewModel.canStartProcess ? 1 : 0.98)
-                    .shadow(color: Color.blue.opacity(0.35), radius: 14, x: 0, y: 8)
+                        )
+                        .foregroundStyle(.white)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
-
-                if viewModel.isConverting {
-                    convertProgressCard
-                }
-
-                statusCard(title: "Status", body: viewModel.statusMessage, status: viewModel.errorMessage)
+                .buttonStyle(.plain)
+                .scaleEffect(viewModel.canStartProcess ? 1 : 0.98)
+                .shadow(color: Color.blue.opacity(0.35), radius: 14, x: 0, y: 8)
             }
+
+            if viewModel.isConverting {
+                convertProgressCard
+            }
+
+            statusCard(title: "Status", body: viewModel.statusMessage, status: viewModel.errorMessage)
         }
     }
 
@@ -528,103 +524,101 @@ struct ContentView: View {
     }
 
     private var resultStep: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                heroSection(
-                    title: "Batch Completed",
-                    icon: "sparkles.rectangle.stack",
-                    subtitle: "Your stamped videos are ready to save or share."
-                )
+        VStack(spacing: 16) {
+            heroSection(
+                title: "Batch Completed",
+                icon: "sparkles.rectangle.stack",
+                subtitle: "Your stamped videos are ready to save or share."
+            )
 
-                statusCard(title: "Session", body: viewModel.statusMessage, status: viewModel.errorMessage)
+            statusCard(title: "Session", body: viewModel.statusMessage, status: viewModel.errorMessage)
 
-                if !viewModel.results.isEmpty {
-                    card {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack {
-                                Text("Results")
-                                    .font(.system(.headline, design: .rounded, weight: .bold))
-                                Spacer(minLength: 0)
-                                Text("\(viewModel.results.count)")
-                                    .font(.system(.subheadline, design: .rounded, weight: .bold))
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 4)
-                                    .background(Capsule().fill(Color.green.opacity(0.18)))
-                                    .foregroundStyle(.green)
-                            }
+            if !viewModel.results.isEmpty {
+                card {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("Results")
+                                .font(.system(.headline, design: .rounded, weight: .bold))
+                            Spacer(minLength: 0)
+                            Text("\(viewModel.results.count)")
+                                .font(.system(.subheadline, design: .rounded, weight: .bold))
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color.green.opacity(0.18)))
+                                .foregroundStyle(.green)
+                        }
 
-                            ForEach(viewModel.results) { result in
-                                VStack(spacing: 8) {
-                                    HStack(alignment: .top) {
-                                        VStack(alignment: .leading, spacing: 3) {
-                                            Text(result.sourceName)
-                                                .font(.system(.subheadline, design: .rounded, weight: .medium))
-                                                .lineLimit(1)
-                                            Text("Output: \(humanReadableSize(result.outputSizeBytes))")
-                                                .font(.system(.caption, design: .rounded, weight: .semibold))
-                                                .foregroundStyle(.secondary)
-                                        }
-
-                                        Spacer(minLength: 0)
-
-                                        Text("✓")
-                                            .font(.system(.title3, design: .rounded, weight: .black))
-                                            .foregroundStyle(.green)
+                        ForEach(viewModel.results) { result in
+                            VStack(spacing: 8) {
+                                HStack(alignment: .top) {
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(result.sourceName)
+                                            .font(.system(.subheadline, design: .rounded, weight: .medium))
+                                            .lineLimit(1)
+                                        Text("Output: \(humanReadableSize(result.outputSizeBytes))")
+                                            .font(.system(.caption, design: .rounded, weight: .semibold))
+                                            .foregroundStyle(.secondary)
                                     }
 
-                                    HStack(spacing: 8) {
-                                        ShareLink(item: result.outputURL) {
-                                            Label("Share", systemImage: "square.and.arrow.up")
-                                                .frame(maxWidth: .infinity)
-                                        }
+                                    Spacer(minLength: 0)
 
-                                        Button {
-                                            Task {
-                                                let message = await viewModel.saveResult(result)
-                                                saveMessage = message
-                                            }
-                                        } label: {
-                                            Label("Save", systemImage: "square.and.arrow.down")
-                                                .frame(maxWidth: .infinity)
-                                        }
-                                    }
-                                    .buttonStyle(.bordered)
+                                    Text("✓")
+                                        .font(.system(.title3, design: .rounded, weight: .black))
+                                        .foregroundStyle(.green)
                                 }
-                                .padding(.vertical, 6)
-                                .overlay(
-                                    Rectangle()
-                                        .frame(height: 1)
-                                        .foregroundStyle(Color.white.opacity(0.4)),
-                                    alignment: .bottom
-                                )
-                            }
-                        }
-                    }
 
-                    Button {
-                        Task {
-                            let messages = await viewModel.saveAllResults()
-                            if let first = messages.first(where: { !$0.hasPrefix("Saved") }) {
-                                saveMessage = first
-                            } else {
-                                saveMessage = "Save all completed."
+                                HStack(spacing: 8) {
+                                    ShareLink(item: result.outputURL) {
+                                        Label("Share", systemImage: "square.and.arrow.up")
+                                            .frame(maxWidth: .infinity)
+                                    }
+
+                                    Button {
+                                        Task {
+                                            let message = await viewModel.saveResult(result)
+                                            saveMessage = message
+                                        }
+                                    } label: {
+                                        Label("Save", systemImage: "square.and.arrow.down")
+                                            .frame(maxWidth: .infinity)
+                                    }
+                                }
+                                .buttonStyle(.bordered)
                             }
+                            .padding(.vertical, 6)
+                            .overlay(
+                                Rectangle()
+                                    .frame(height: 1)
+                                    .foregroundStyle(Color.white.opacity(0.4)),
+                                alignment: .bottom
+                            )
                         }
-                    } label: {
-                        Label("Save All", systemImage: "tray.and.arrow.down")
-                            .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
                 }
 
                 Button {
-                    viewModel.restartFlow()
+                    Task {
+                        let messages = await viewModel.saveAllResults()
+                        if let first = messages.first(where: { !$0.hasPrefix("Saved") }) {
+                            saveMessage = first
+                        } else {
+                            saveMessage = "Save all completed."
+                        }
+                    }
                 } label: {
-                    actionButton("Create New Watermark Job", icon: "arrow.uturn.left", primary: false)
+                    Label("Save All", systemImage: "tray.and.arrow.down")
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
             }
+
+            Button {
+                viewModel.restartFlow()
+            } label: {
+                actionButton("Create New Watermark Job", icon: "arrow.uturn.left", primary: false)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -633,7 +627,7 @@ struct ContentView: View {
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.ultraThinMaterial)
+                    .fill(Color.white.opacity(0.9))
                     .overlay(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
                             .stroke(Color.white.opacity(0.8), lineWidth: 1)
@@ -651,7 +645,7 @@ struct ContentView: View {
             .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(Color.white.opacity(0.75))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .stroke(Color.blue.opacity(0.2), lineWidth: 1)
@@ -690,7 +684,7 @@ struct ContentView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color.white.opacity(0.55))
+                .fill(Color.white.opacity(0.75))
                 .overlay(
                     RoundedRectangle(cornerRadius: 14)
                         .stroke(LinearGradient(colors: [Color.white.opacity(0.8), Color.blue.opacity(0.15)], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
