@@ -1,12 +1,24 @@
 import AVKit
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct ContentView: View {
     @StateObject private var viewModel = VideoConversionViewModel()
     @State private var isVideoFileImporterPresented = false
+    @State private var isWatermarkFileImporterPresented = false
+    @State private var isVideoSourceSheetPresented = false
+    @State private var isWatermarkSourceSheetPresented = false
     @State private var saveMessage: String?
     @State private var animateCards = false
+    @State private var dragStartXPercent: Double?
+    @State private var dragStartYPercent: Double?
+    @State private var resizeStartPercent: Double?
+    @State private var previewXPercent: Double = 0
+    @State private var previewYPercent: Double = 0
+    @State private var previewSizePercent: Double = 0
+    @State private var isDraggingWatermark = false
+    @State private var isResizingWatermark = false
 
     var body: some View {
         NavigationStack {
@@ -15,7 +27,7 @@ struct ContentView: View {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 16) {
                     header
-                    stepRail
+                    stageBanner
 
                     Group {
                         switch viewModel.workflowStep {
@@ -28,10 +40,12 @@ struct ContentView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                    .frame(maxWidth: 700)
+                    .frame(maxWidth: .infinity)
                     }
-                    .padding(.horizontal, 14)
-                    .padding(.top, 10)
-                    .padding(.bottom, 20)
+                    .padding(.horizontal, 30)
+                    .padding(.top, 14)
+                    .padding(.bottom, 28)
                     .onAppear { animateCards = true }
                     .onChange(of: viewModel.workflowStep) { _, _ in
                         withAnimation(.snappy(duration: 0.35)) {
@@ -42,6 +56,8 @@ struct ContentView: View {
                         }
                     }
                 }
+                .safeAreaPadding(.horizontal, 6)
+                .safeAreaPadding(.top, 4)
                 .scrollDismissesKeyboard(.interactively)
             }
             .navigationBarHidden(true)
@@ -64,6 +80,59 @@ struct ContentView: View {
                 saveMessage = "Import failed: \(error.localizedDescription)"
             }
         }
+        .fileImporter(
+            isPresented: $isWatermarkFileImporterPresented,
+            allowedContentTypes: [.image, .png, .jpeg],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let first = urls.first else { return }
+                Task { await viewModel.handleImportedWatermark(url: first) }
+            case .failure(let error):
+                saveMessage = "Import failed: \(error.localizedDescription)"
+            }
+        }
+        .sheet(isPresented: $isVideoSourceSheetPresented) {
+            mediaSourceSheet(
+                title: "Select Source Videos",
+                subtitle: "Pick any amount of videos from Photos or Files.",
+                filesLabel: "Pick Videos from Files",
+                filesIcon: "folder",
+                pickerContent: {
+                    PhotosPicker(
+                        selection: $viewModel.videoPickerItems,
+                        maxSelectionCount: 25,
+                        matching: .videos
+                    ) {
+                        sourceActionButton("Pick Videos from Photos", icon: "photo.stack", primary: true)
+                    }
+                    .buttonStyle(.plain)
+                },
+                filesAction: {
+                    isVideoSourceSheetPresented = false
+                    isVideoFileImporterPresented = true
+                }
+            )
+        }
+        .sheet(isPresented: $isWatermarkSourceSheetPresented) {
+            mediaSourceSheet(
+                title: "Select Watermark",
+                subtitle: "Choose a watermark from Photos or Files.",
+                filesLabel: "Pick Watermark from Files",
+                filesIcon: "folder",
+                pickerContent: {
+                    PhotosPicker(selection: $viewModel.watermarkPickerItem, matching: .images) {
+                        sourceActionButton("Pick Watermark from Photos", icon: "photo", primary: true)
+                    }
+                    .buttonStyle(.plain)
+                },
+                filesAction: {
+                    isWatermarkSourceSheetPresented = false
+                    isWatermarkFileImporterPresented = true
+                }
+            )
+        }
         .alert("Video Watermark", isPresented: Binding(
             get: { saveMessage != nil },
             set: { if !$0 { saveMessage = nil } }
@@ -71,6 +140,21 @@ struct ContentView: View {
             Button("OK", role: .cancel) { saveMessage = nil }
         } message: {
             Text(saveMessage ?? "")
+        }
+        .onAppear {
+            syncPreviewWithSettings()
+        }
+        .onChange(of: viewModel.watermarkSettings.positionXPercent) { _, _ in
+            guard !isDraggingWatermark else { return }
+            previewXPercent = viewModel.watermarkSettings.positionXPercent
+        }
+        .onChange(of: viewModel.watermarkSettings.positionYPercent) { _, _ in
+            guard !isDraggingWatermark else { return }
+            previewYPercent = viewModel.watermarkSettings.positionYPercent
+        }
+        .onChange(of: viewModel.watermarkSettings.sizePercent) { _, _ in
+            guard !isResizingWatermark else { return }
+            previewSizePercent = viewModel.watermarkSettings.sizePercent
         }
     }
 
@@ -180,116 +264,57 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.4), value: animateCards)
     }
 
-    private var stepRail: some View {
-        HStack(spacing: 10) {
-            stepChip(title: "Source", icon: "tray.and.arrow.down", index: "01", isActive: viewModel.workflowStep == .source)
-            stepChip(title: "Settings", icon: "slider.horizontal.3", index: "02", isActive: viewModel.workflowStep == .convert)
-            stepChip(title: "Results", icon: "checkmark.circle", index: "03", isActive: viewModel.workflowStep == .result)
+    private var stageBanner: some View {
+        let model = stageModel
+
+        return HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(model.tint.opacity(0.18))
+                    .frame(width: 40, height: 40)
+                Image(systemName: model.icon)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(model.tint)
+            }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.title)
+                    .font(.system(.subheadline, design: .rounded, weight: .bold))
+                Text(model.subtitle)
+                    .font(.system(.caption, design: .rounded, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
         }
-        .padding(4)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
         .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color.white.opacity(0.86))
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .fill(Color.white.opacity(0.82))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(Color.white.opacity(0.8), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(model.tint.opacity(0.2), lineWidth: 1)
                 )
         )
     }
 
-    private func stepChip(title: String, icon: String, index: String, isActive: Bool) -> some View {
-        VStack(spacing: 4) {
-            HStack(spacing: 6) {
-                ZStack {
-                    Circle()
-                        .fill(isActive ? Color.blue.opacity(0.2) : Color.white.opacity(0.55))
-                        .frame(width: 18, height: 18)
-                    Text(index)
-                        .font(.system(.caption2, design: .rounded, weight: .bold))
-                        .foregroundStyle(isActive ? .blue : .secondary)
-                }
-
-                Spacer(minLength: 0)
-
-                Image(systemName: icon)
-                    .font(.system(size: 14, weight: .semibold))
-            }
-
-            HStack(spacing: 6) {
-                Text(title)
-                    .font(.system(.caption, design: .rounded, weight: .semibold))
-                    .tracking(0.2)
-            }
+    private var stageModel: (title: String, subtitle: String, icon: String, tint: Color) {
+        switch viewModel.workflowStep {
+        case .source:
+            return ("Import Sources", "Select videos to prepare your batch", "tray.and.arrow.down.fill", .blue)
+        case .convert:
+            return ("Adjust Watermark", "Tune size, position, and transparency", "slider.horizontal.3", .cyan)
+        case .result:
+            return ("Export Results", "Save or share rendered videos", "checkmark.circle.fill", .green)
         }
-        .foregroundStyle(isActive ? .primary : .secondary)
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    isActive
-                    ? AnyShapeStyle(
-                        LinearGradient(
-                            colors: [Color.blue.opacity(0.12), Color.cyan.opacity(0.12)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    : AnyShapeStyle(Color.white.opacity(0.74))
-                )
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(isActive ? Color.blue.opacity(0.4) : Color.blue.opacity(0.2), lineWidth: 1)
-        )
-        .shadow(color: isActive ? Color.blue.opacity(0.15) : .clear, radius: 14, x: 0, y: 8)
     }
 
     private var sourceStep: some View {
         VStack(spacing: 16) {
-            heroSection(
-                title: "Import Media",
-                icon: "play.rectangle.on.rectangle",
-                subtitle: "Drag in clips from Photos or Files and let the queue build automatically."
-            )
+            sourcePreviewCard
 
-            statusCard(title: "Session", body: viewModel.statusMessage, status: viewModel.errorMessage)
-
-            card {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text("Add source videos")
-                            .font(.system(.headline, design: .rounded, weight: .semibold))
-                        Spacer(minLength: 0)
-                        Text("\(viewModel.queuedVideos.count)")
-                            .font(.system(.subheadline, design: .rounded, weight: .bold))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(Color.blue.opacity(0.16))
-                            )
-                            .foregroundStyle(.blue)
-                    }
-
-                    PhotosPicker(
-                        selection: $viewModel.videoPickerItems,
-                        maxSelectionCount: 25,
-                        matching: .videos
-                    ) {
-                        actionButton("Pick from Photos", icon: "photo.stack", primary: true)
-                    }
-                    .buttonStyle(.plain)
-
-                    Button {
-                        isVideoFileImporterPresented = true
-                    } label: {
-                        actionButton("Pick from Files", icon: "folder", primary: false)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+            sourceReadinessCard
 
             if viewModel.isLoadingSourceDetails {
                 glassSurface {
@@ -351,6 +376,365 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private var sourcePreviewCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    Text("Preview and Setup")
+                        .font(.system(.headline, design: .rounded, weight: .semibold))
+                    Spacer(minLength: 0)
+                    Text("\(viewModel.queuedVideos.count) video(s)")
+                        .font(.system(.caption, design: .rounded, weight: .bold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.blue.opacity(0.16)))
+                        .foregroundStyle(.blue)
+                }
+
+                GeometryReader { proxy in
+                    let canvasSize = proxy.size
+                    let frame = watermarkFrame(in: canvasSize)
+
+                    ZStack {
+                        demoVideoCanvas
+                            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .onTapGesture {
+                            isVideoSourceSheetPresented = true
+                            }
+
+                        watermarkBoundingBox(frame: frame, canvasSize: canvasSize)
+                    }
+                }
+                .frame(height: 224)
+
+                Text("Drag watermark to position it. Drag the corner handle to resize. Tap watermark to replace image.")
+                    .font(.system(.footnote, design: .rounded, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var demoVideoCanvas: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            Color(red: 0.50, green: 0.64, blue: 0.86),
+                            Color(red: 0.34, green: 0.49, blue: 0.76),
+                            Color(red: 0.20, green: 0.34, blue: 0.58)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+
+            if let sourcePreview = viewModel.sourcePreviewImage {
+                Image(uiImage: sourcePreview)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(
+                        LinearGradient(
+                            colors: [.clear, Color.black.opacity(0.2)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                    )
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color.white.opacity(0.10))
+
+                    Circle()
+                        .fill(Color.white.opacity(0.20))
+                        .frame(width: 200, height: 200)
+                        .offset(x: -85, y: -75)
+
+                    VStack(spacing: 9) {
+                        Image(systemName: "play.rectangle.fill")
+                            .font(.system(size: 42, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.92))
+                        Text("Tap to Select Videos")
+                            .font(.system(.headline, design: .rounded, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.94))
+                        Text("Add as many videos as you want from Photos or Files")
+                            .font(.system(.footnote, design: .rounded))
+                            .multilineTextAlignment(.center)
+                            .foregroundStyle(.white.opacity(0.88))
+                    }
+                    .padding(.horizontal, 18)
+                }
+            }
+
+            VStack {
+                HStack {
+                    Label(viewModel.sourcePreviewImage == nil ? "Demo Video Frame" : "Selected Video Frame", systemImage: "film.stack")
+                        .font(.system(.caption, design: .rounded, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 9)
+                        .padding(.vertical, 5)
+                        .background(Capsule().fill(Color.black.opacity(0.35)))
+                    Spacer(minLength: 0)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(10)
+        }
+        .frame(height: 210)
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.5), lineWidth: 1)
+        )
+    }
+
+    private func watermarkBoundingBox(frame: CGRect, canvasSize: CGSize) -> some View {
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .fill(Color.black.opacity(0.12))
+
+                if let watermark = viewModel.watermarkImage {
+                    Image(uiImage: watermark)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: frame.width, height: frame.height)
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .fill(Color.white.opacity(0.08))
+                        Text("WATERMARK")
+                            .font(.system(.caption, design: .rounded, weight: .black))
+                            .tracking(1.2)
+                            .foregroundStyle(Color.white.opacity(0.9))
+                        Image(systemName: "water.waves")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(Color.white.opacity(0.95))
+                            .offset(x: 0, y: -14)
+                    }
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .gesture(
+                DragGesture(minimumDistance: 1)
+                    .onChanged { value in
+                        if dragStartXPercent == nil {
+                            isDraggingWatermark = true
+                            dragStartXPercent = previewXPercent
+                            dragStartYPercent = previewYPercent
+                        }
+
+                        let widthRange = max(canvasSize.width - frame.width, 1)
+                        let heightRange = max(canvasSize.height - frame.height, 1)
+                        let startX = dragStartXPercent ?? previewXPercent
+                        let startY = dragStartYPercent ?? previewYPercent
+
+                        let nextX = startX + Double(value.translation.width / widthRange) * 100
+                        let nextY = startY + Double(value.translation.height / heightRange) * 100
+                        previewXPercent = min(max(nextX, 0), 100)
+                        previewYPercent = min(max(nextY, 0), 100)
+                    }
+                    .onEnded { _ in
+                        viewModel.updateX(previewXPercent)
+                        viewModel.updateY(previewYPercent)
+                        isDraggingWatermark = false
+                        dragStartXPercent = nil
+                        dragStartYPercent = nil
+                    }
+            )
+
+            Button {
+                isWatermarkSourceSheetPresented = true
+            } label: {
+                Image(systemName: "photo")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.blue)
+                    .frame(width: 20, height: 20)
+                    .background(Circle().fill(Color.white))
+                    .shadow(color: Color.black.opacity(0.16), radius: 5, x: 0, y: 2)
+            }
+            .buttonStyle(.plain)
+            .offset(x: 8, y: 8)
+
+            Circle()
+                .fill(Color.white)
+                .frame(width: 22, height: 22)
+                .overlay(
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(.blue)
+                )
+                .shadow(color: Color.black.opacity(0.18), radius: 6, x: 0, y: 3)
+                .offset(x: 9, y: 9)
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            if resizeStartPercent == nil {
+                                isResizingWatermark = true
+                                resizeStartPercent = previewSizePercent
+                            }
+                            let start = resizeStartPercent ?? previewSizePercent
+                            let delta = Double(value.translation.width / max(canvasSize.width, 1)) * 100
+                            let next = min(max(start + delta, 6), 60)
+                            previewSizePercent = next
+                        }
+                        .onEnded { _ in
+                            viewModel.updateSize(previewSizePercent)
+                            isResizingWatermark = false
+                            resizeStartPercent = nil
+                        }
+                )
+        }
+        .frame(width: frame.width, height: frame.height)
+        .position(x: frame.midX, y: frame.midY)
+    }
+
+    private func watermarkFrame(in canvasSize: CGSize) -> CGRect {
+        let aspectRatio: CGFloat = {
+            guard let watermark = viewModel.watermarkImage, watermark.size.height > 0 else { return 2.2 }
+            return max(watermark.size.width / watermark.size.height, 0.7)
+        }()
+
+        let baseWidth = canvasSize.width * (previewSizePercent / 100)
+        let minWidth = viewModel.watermarkImage == nil ? canvasSize.width * 0.34 : 86
+        let width = min(max(baseWidth, minWidth), canvasSize.width * 0.72)
+        let height = min(max(width / aspectRatio, 56), canvasSize.height * 0.42)
+        let maxX = max(canvasSize.width - width, 0)
+        let maxY = max(canvasSize.height - height, 0)
+        let originX = CGFloat(previewXPercent / 100) * maxX
+        let originY = CGFloat(previewYPercent / 100) * maxY
+
+        return CGRect(x: originX, y: originY, width: width, height: height)
+    }
+
+    private func syncPreviewWithSettings() {
+        previewXPercent = viewModel.watermarkSettings.positionXPercent
+        previewYPercent = viewModel.watermarkSettings.positionYPercent
+        previewSizePercent = viewModel.watermarkSettings.sizePercent
+    }
+
+    private var sourceReadinessCard: some View {
+        card {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Readiness")
+                    .font(.system(.headline, design: .rounded, weight: .semibold))
+
+                readinessRow(
+                    title: "Source videos",
+                    detail: "\(viewModel.queuedVideos.count) selected",
+                    isDone: !viewModel.queuedVideos.isEmpty
+                )
+                readinessRow(
+                    title: "Watermark",
+                    detail: viewModel.watermarkImage == nil ? "Not selected" : "Ready",
+                    isDone: viewModel.watermarkImage != nil
+                )
+                readinessRow(
+                    title: "Next step",
+                    detail: viewModel.canStartProcess ? "Open Settings and apply to all videos" : "Select videos and watermark",
+                    isDone: viewModel.canStartProcess
+                )
+
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .font(.system(.caption, design: .rounded))
+                        .foregroundStyle(.red)
+                }
+            }
+        }
+    }
+
+    private func readinessRow(title: String, detail: String, isDone: Bool) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: isDone ? "checkmark.circle.fill" : "circle.dashed")
+                .font(.system(size: 16, weight: .bold))
+                .foregroundStyle(isDone ? .green : .blue)
+
+            Text(title)
+                .font(.system(.subheadline, design: .rounded, weight: .semibold))
+
+            Spacer(minLength: 0)
+
+            Text(detail)
+                .font(.system(.caption, design: .rounded, weight: .medium))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func mediaSourceSheet(
+        title: String,
+        subtitle: String,
+        filesLabel: String,
+        filesIcon: String,
+        @ViewBuilder pickerContent: () -> some View,
+        filesAction: @escaping () -> Void
+    ) -> some View {
+        NavigationStack {
+            VStack(spacing: 14) {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(title)
+                        .font(.system(.title3, design: .rounded, weight: .bold))
+                    Text(subtitle)
+                        .font(.system(.footnote, design: .rounded))
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                pickerContent()
+
+                Button(action: filesAction) {
+                    sourceActionButton(filesLabel, icon: filesIcon, primary: false)
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+            }
+            .padding(16)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Close") {
+                        isVideoSourceSheetPresented = false
+                        isWatermarkSourceSheetPresented = false
+                    }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private func sourceActionButton(_ title: String, icon: String, primary: Bool) -> some View {
+        Label(title, systemImage: icon)
+            .font(.system(.headline, design: .rounded, weight: .semibold))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .foregroundStyle(primary ? .white : .primary)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(
+                        primary
+                        ? AnyShapeStyle(
+                            LinearGradient(
+                                colors: [Color.blue.opacity(0.95), Color.cyan.opacity(0.85)],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        : AnyShapeStyle(Color.white.opacity(0.84))
+                    )
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(primary ? Color.white.opacity(0.24) : Color.blue.opacity(0.16), lineWidth: 1)
+            )
     }
 
     private var convertStep: some View {

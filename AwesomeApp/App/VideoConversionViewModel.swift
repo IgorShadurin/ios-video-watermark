@@ -208,6 +208,29 @@ final class VideoConversionViewModel: ObservableObject {
         }
     }
 
+    func handleImportedWatermark(url: URL) async {
+        do {
+            let hasAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasAccess { url.stopAccessingSecurityScopedResource() }
+            }
+
+            let data = try Data(contentsOf: url)
+            guard let image = UIImage(data: data) else {
+                throw SourceLoadError.noImage
+            }
+
+            watermarkImage = image
+            errorMessage = nil
+            statusMessage = "Watermark set. Ready to process \(queuedVideos.count) video(s)."
+            transitionToConvertIfNeeded()
+            persistSettings()
+        } catch {
+            errorMessage = error.localizedDescription
+            watermarkImage = nil
+        }
+    }
+
     func removeQueuedVideo(_ id: UUID) {
         queuedVideos.removeAll { $0.id == id }
         if queuedVideos.isEmpty {
